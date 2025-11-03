@@ -1,0 +1,37 @@
+package com.banking.controller;
+
+import com.banking.model.Transaction;
+import com.banking.service.TransactionService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/transactions")
+@RequiredArgsConstructor
+public class TransactionController {
+
+    private final TransactionService transactionService;
+
+    // ✅ Transfer money between accounts
+    @PostMapping("/transfer")
+    public ResponseEntity<?> transfer(@RequestBody Map<String, String> request) {
+        String fromAccount = request.get("fromAccount");
+        String toAccount = request.get("toAccount");
+        BigDecimal amount = new BigDecimal(request.get("amount"));
+
+        Transaction transaction = transactionService.transfer(fromAccount, toAccount, amount);
+        return ResponseEntity.ok(transaction);
+    }
+
+    // ✅ Get transaction history for a specific account
+    @GetMapping("/{accountNumber}")
+    public ResponseEntity<?> getTransactions(@PathVariable String accountNumber) {
+        List<Transaction> transactions = transactionService.getTransactionsForAccount(accountNumber);
+        return ResponseEntity.ok(transactions);
+    }
+}

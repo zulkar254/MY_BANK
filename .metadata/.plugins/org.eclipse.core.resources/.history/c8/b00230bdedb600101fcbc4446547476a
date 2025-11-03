@@ -1,0 +1,134 @@
+package com.banking.service.impl;
+
+import com.banking.model.Account;
+import com.banking.model.Transaction;
+import com.banking.repository.AccountRepository;
+import com.banking.repository.TransactionRepository;
+import com.banking.service.TransactionService;
+import jakarta.transaction.Transactional;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+@Service
+@RequiredArgsConstructor
+public class TransactionServiceImpl  {
+
+    private final AccountRepository accountRepository;
+    private final TransactionRepository transactionRepository;
+
+    /**
+     * ✅ Deposit amount into account
+     */
+ 
+    @Transactional
+    public Transaction deposit(String accountNumber, BigDecimal amount) {
+        Account account = accountRepository.findByAccountNumber(accountNumber)
+                .orElseThrow(() -> new RuntimeException("Account not found"));
+
+        // Update balance
+        account.setBalance(account.getBalance().add(amount));
+        accountRepository.save(account);
+
+        // Record transaction
+        Transaction transaction = Transaction.builder()
+                .fromAccount("SYSTEM") // 👈 Default source for deposits
+                .toAccount(accountNumber)
+                .amount(amount)
+                .timestamp(LocalDateTime.now())
+                .status("SUCCESS")
+                .type("DEPOSIT")
+                .build();
+
+        return transactionRepository.save(transaction);
+    }
+
+    /**
+     * ✅ Withdraw amount from account
+     */
+    
+    @Transactional
+    public Transaction withdraw(String accountNumber, BigDecimal amount) {
+        Account account = accountRepository.findByAccountNumber(accountNumber)
+                .orElseThrow(() -> new RuntimeException("Account not found"));
+
+        if (account.getBalance().compareTo(amount) < 0) {
+            // Record failed transaction
+            Transaction failedTxn = Transaction.builder()
+                    .fromAccount(accountNumber)
+                    .toAccount(null)
+                    .amount(amount)
+                    .timestamp(LocalDateTime.now())
+                    .status("FAILED")
+                    .type("WITHDRAW")
+                    .build();
+
+            transactionRepository.save(failedTxn);
+            throw new RuntimeException("Insufficient balance");
+        }
+
+        // Deduct and save
+        account.setBalance(account.getBalance().subtract(amount));
+        accountRepository.save(account);
+
+        // Record success transaction
+        Transaction transaction = Transaction.builder()
+                .fromAccount(accountNumber)
+                .toAccount(null)
+                .amount(amount)
+                .timestamp(LocalDateTime.now())
+                .status("SUCCESS")
+                .type("WITHDRAW")
+                .build();
+
+        return transactionRepository.save(transaction);
+    }
+
+    /**
+     * ✅ Transfer amount between accounts
+     */
+    @Override
+    @Transactional
+    public Transaction transfer(String fromAccountNumber, String toAccountNumber, BigDecimal amount) {
+        Account fromAccount = accountRepository.findByAccountNumber(fromAccountNumber)
+                .orElseThrow(() -> new RuntimeException("Sender account not found"));
+
+        Account toAccount = accountRepository.findByAccountNumber(toAccountNumber)
+                .orElseThrow(() -> new RuntimeException("Receiver account not found"));
+
+        if (fromAccount.getBalance().compareTo(amount) < 0) {
+            Transaction failedTxn = Transaction.builder()
+                    .fromAccount(fromAccountNumber)
+                    .toAccount(toAccountNumber)
+                    .amount(amount)
+                    .timestamp(LocalDateTime.now())
+                    .status("FAILED")
+                    .type("TRANSFER")
+                    .build();
+
+            transactionRepository.save(failedTxn);
+            throw new RuntimeException("Insufficient balance for transfer");
+        }
+
+        // Update balances
+        fromAccount.setBalance(fromAccount.getBalance().subtract(amount));
+        toAccount.setBalance(toAccount.getBalance().add(amount));
+
+        accountRepository.save(fromAccount);
+        accountRepository.save(toAccount);
+
+        // Record transaction
+        Transaction transaction = Transaction.builder()
+                .fromAccount(fromAccountNumber)
+                .toAccount(toAccountNumber)
+                .amount(amount)
+                .timestamp(LocalDateTime.now())
+                .status("SUCCESS")
+                .type("TRANSFER")
+                .build();
+
+        return transactionRepository.save(transaction);
+    }
+}

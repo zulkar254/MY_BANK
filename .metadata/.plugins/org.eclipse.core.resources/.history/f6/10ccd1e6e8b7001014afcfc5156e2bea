@@ -1,0 +1,13 @@
+package com.banking.controller;
+
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.GetMapping;
+
+@Controller
+public class WebController {
+
+    @GetMapping("/payment")
+    public String paymentPage() {
+        return "payment"; // loads payment.html
+    }
+}

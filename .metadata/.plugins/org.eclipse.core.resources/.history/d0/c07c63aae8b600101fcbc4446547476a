@@ -1,0 +1,46 @@
+package com.banking.controller;
+
+import com.banking.model.Transaction;
+import com.banking.service.TransactionService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/transactions")
+@RequiredArgsConstructor
+public class TransactionController {
+
+    private final TransactionService transactionService;
+
+    @PostMapping("/deposit")
+    public ResponseEntity<Transaction> deposit(@RequestBody Map<String, Object> req) {
+        String accountNumber = req.get("accountNumber").toString();
+        BigDecimal amount = new BigDecimal(req.get("amount").toString());
+        return ResponseEntity.ok(transactionService.deposit(accountNumber, amount));
+    }
+
+    @PostMapping("/withdraw")
+    public ResponseEntity<Transaction> withdraw(@RequestBody Map<String, Object> req) {
+        String accountNumber = req.get("accountNumber").toString();
+        BigDecimal amount = new BigDecimal(req.get("amount").toString());
+        return ResponseEntity.ok(transactionService.withdraw(accountNumber, amount));
+    }
+
+    @PostMapping("/transfer")
+    public ResponseEntity<Transaction> transfer(@RequestBody Map<String, Object> req) {
+        String fromAccount = req.get("fromAccount").toString();
+        String toAccount = req.get("toAccount").toString();
+        BigDecimal amount = new BigDecimal(req.get("amount").toString());
+        return ResponseEntity.ok(transactionService.transfer(fromAccount, toAccount, amount));
+    }
+
+    @GetMapping("/{accountNumber}")
+    public ResponseEntity<List<Transaction>> getTransactions(@PathVariable String accountNumber) {
+        return ResponseEntity.ok(transactionService.getTransactions(accountNumber));
+    }
+}

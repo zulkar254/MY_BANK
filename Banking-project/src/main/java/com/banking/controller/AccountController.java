@@ -1,0 +1,82 @@
+package com.banking.controller;
+
+import com.banking.model.Account;
+import com.banking.model.User;
+import com.banking.repository.AccountRepository;
+import com.banking.repository.UserRepository;
+import com.banking.service.AccountService;
+
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
+import java.util.*;
+
+@RestController
+@RequestMapping("/api/accounts")
+@RequiredArgsConstructor
+public class AccountController {
+
+    private final AccountRepository accountRepository;
+    private final UserRepository userRepository;
+    private final AccountService accountService;
+
+    // ✅ Create new account for a user
+    @PostMapping("/create")
+    public ResponseEntity<?> createAccount(@RequestParam Long userId) {
+        Optional<User> userOpt = userRepository.findById(userId);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "User not found"));
+        }
+
+        User user = userOpt.get();
+
+        Account account = Account.builder()
+                .accountNumber(generateAccountNumber())
+                .balance(BigDecimal.ZERO)
+                .user(user)
+                .build();
+
+        accountRepository.save(account);
+
+        return ResponseEntity.ok(Map.of(
+                "message", "Account created successfully",
+                "accountNumber", account.getAccountNumber()
+        ));
+    }
+
+    // ✅ Get all accounts for a user
+    @GetMapping("/user/{userId}")
+    public ResponseEntity<?> getAccountsByUser(@PathVariable Long userId) {
+        List<Account> accounts = accountRepository.findByUserId(userId);
+        if (accounts.isEmpty()) {
+            return ResponseEntity.ok(Map.of("message", "No accounts found for this user"));
+        }
+        return ResponseEntity.ok(accounts);
+    }
+
+    // ✅ Get balance by account number
+    @GetMapping("/{accountNumber}/balance")
+    public ResponseEntity<?> getBalance(@PathVariable String accountNumber) {
+        Account account = accountRepository.findByAccountNumber(accountNumber)
+                .orElseThrow(() -> new RuntimeException("Account not found"));
+
+        return ResponseEntity.ok(Map.of(
+                "accountNumber", account.getAccountNumber(),
+                "balance", account.getBalance()
+        ));
+    }
+
+    // ✅ Utility: Generate random account number
+    private String generateAccountNumber() {
+        return "ACCT-" + (100000 + new Random().nextInt(900000));
+    }
+    //Get all account details 
+    @GetMapping("/all")
+    public ResponseEntity<List<Account>> getAllAccounts() {
+        List<Account> accounts = accountService.getAllAccounts(); 
+        return ResponseEntity.ok(accounts);
+    }
+
+}

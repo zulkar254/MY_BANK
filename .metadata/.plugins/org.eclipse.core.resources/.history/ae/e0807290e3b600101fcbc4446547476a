@@ -1,0 +1,13 @@
+package com.banking.service;
+
+import com.banking.dto.TransferRequest;
+import com.banking.model.Transaction;
+
+import java.util.List;
+
+public interface TransactionService {
+
+    Transaction transfer(TransferRequest request);
+
+    List<Transaction> historyForAccount(String accountNumber);
+}

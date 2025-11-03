@@ -1,0 +1,121 @@
+package com.banking.service.impl;
+
+import com.banking.model.Account;
+import com.banking.model.Payment;
+import com.banking.model.Transaction;
+import com.banking.repository.AccountRepository;
+import com.banking.repository.PaymentRepository;
+import com.banking.repository.TransactionRepository;
+import com.banking.service.PaymentService;
+import com.razorpay.Order;
+import com.razorpay.RazorpayClient;
+import lombok.RequiredArgsConstructor;
+import org.json.JSONObject;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.crypto.codec.Hex;
+import org.springframework.stereotype.Service;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
+
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+
+@Service
+@RequiredArgsConstructor
+public class PaymentServiceImpl implements PaymentService {
+
+    private final PaymentRepository paymentRepository;
+    
+    private final AccountRepository accountRepository;
+    
+    private final TransactionRepository transactionRepository;
+
+    @Value("${razorpay.keyId}")
+    private String keyId;
+
+    @Value("${razorpay.keySecret}")
+    private String keySecret;
+
+    @Override
+    public Map<String, Object> createPayment(BigDecimal amount, String currency) throws Exception {
+        RazorpayClient client = new RazorpayClient(keyId, keySecret);
+
+        JSONObject orderRequest = new JSONObject();
+        orderRequest.put("amount", amount.multiply(BigDecimal.valueOf(100))); // Razorpay uses paise
+        orderRequest.put("currency", currency);
+        orderRequest.put("payment_capture", 1);
+
+        Order order = client.orders.create(orderRequest);
+
+        Payment payment = Payment.builder()
+                .orderId(order.get("id"))
+                .amount(amount)
+                .currency(currency)
+                .status("CREATED")
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        paymentRepository.save(payment);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("orderId", order.get("id"));
+        response.put("amount", amount);
+        response.put("currency", currency);
+        response.put("key", keyId);
+
+        return response;
+    }
+    
+    @Override
+    public Payment verifyPayment(String orderId, String paymentId, String signature) throws Exception {
+        String payload = orderId + "|" + paymentId;
+        String generatedSignature = hmacSha256(payload, keySecret);
+
+        Payment payment = paymentRepository.findByOrderId(orderId)
+                .orElseThrow(() -> new RuntimeException("Payment not found"));
+
+        if (generatedSignature.equals(signature)) {
+            payment.setPaymentId(paymentId);
+            payment.setStatus("SUCCESS");
+        } else {
+            payment.setStatus("FAILED");
+        }
+        paymentRepository.save(payment);
+        return payment;
+    }
+
+    private String hmacSha256(String data, String key) throws Exception {
+        Mac sha256_HMAC = Mac.getInstance("HmacSHA256");
+        SecretKeySpec secret_key = new SecretKeySpec(key.getBytes(), "HmacSHA256");
+        sha256_HMAC.init(secret_key);
+        byte[] hash = sha256_HMAC.doFinal(data.getBytes());
+        return Hex.encodeHexString(hash);
+    }
+
+
+ // ✅ STEP 3: Credit Funds into Account
+    private void creditUserAccount(BigDecimal amount, Long paymentId) {
+        // temporary — later link to authenticated user
+        Account account = accountRepository.findAll().get(0);
+
+        account.setBalance(account.getBalance().add(amount));
+        accountRepository.save(account);
+
+        // Create a transaction entry
+        Transaction transaction = Transaction.builder()
+                .fromAccount("SYSTEM")
+                .toAccount(account.getAccountNumber())
+                .amount(amount)
+                .type("CREDIT")
+                .status("SUCCESS")
+                .description("Funds added via Razorpay payment")
+                .timestamp(LocalDateTime.now())
+                .build();
+
+        transactionRepository.save(transaction);
+    }
+}

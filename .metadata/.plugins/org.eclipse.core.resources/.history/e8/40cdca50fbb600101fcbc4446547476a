@@ -1,0 +1,51 @@
+package com.banking.controller;
+
+import com.banking.model.User;
+import com.banking.repository.UserRepository;
+import com.banking.security.JwtTokenProvider;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/auth")
+@RequiredArgsConstructor
+public class AuthController {
+
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final AuthenticationManager authenticationManager;
+    private final JwtTokenProvider jwtTokenProvider;
+    private final UserDetailsService userDetailsService;
+
+    @PostMapping("/register")
+    public ResponseEntity<?> register(@Valid @RequestBody User user) {
+        if (userRepository.existsByEmail(user.getEmail())) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Email already registered"));
+        }
+        user.setPassword(passwordEncoder.encode(user.getPassword()));
+        userRepository.save(user);
+        return ResponseEntity.ok(Map.of("message", "User registered successfully"));
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<?> login(@RequestBody Map<String, String> request) {
+        String email = request.get("email");
+        String password = request.get("password");
+
+        // Will throw AuthenticationException on failure
+        authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(email, password));
+
+        var userDetails = userDetailsService.loadUserByUsername(email);
+        String token = jwtTokenProvider.generateToken(userDetails);
+
+        return ResponseEntity.ok(Map.of("token", token, "email", email));
+    }
+}

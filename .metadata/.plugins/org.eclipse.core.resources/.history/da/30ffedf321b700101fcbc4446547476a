@@ -1,0 +1,125 @@
+package com.banking.service.impl;
+
+import com.banking.model.Account;
+import com.banking.model.Payment;
+import com.banking.model.Transaction;
+import com.banking.repository.AccountRepository;
+import com.banking.repository.PaymentRepository;
+import com.banking.repository.TransactionRepository;
+import com.banking.service.PaymentService;
+import com.razorpay.Order;
+import com.razorpay.RazorpayClient;
+import lombok.RequiredArgsConstructor;
+import org.json.JSONObject;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.crypto.codec.Hex;
+import org.springframework.stereotype.Service;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
+
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+
+@Service
+@RequiredArgsConstructor
+public class PaymentServiceImpl implements PaymentService {
+
+    private final PaymentRepository paymentRepository;
+    
+    private final AccountRepository accountRepository;
+    
+    private final TransactionRepository transactionRepository;
+
+    @Value("${razorpay.keyId}")
+    private String keyId;
+
+    @Value("${razorpay.keySecret}")
+    private String keySecret;
+
+    @Override
+    public Map<String, Object> createPayment(BigDecimal amount, String currency) throws Exception {
+        RazorpayClient client = new RazorpayClient(keyId, keySecret);
+
+        JSONObject orderRequest = new JSONObject();
+        orderRequest.put("amount", amount.multiply(BigDecimal.valueOf(100))); // Razorpay uses paise
+        orderRequest.put("currency", currency);
+        orderRequest.put("payment_capture", 1);
+
+        Order order = client.orders.create(orderRequest);
+
+        Payment payment = Payment.builder()
+                .orderId(order.get("id"))
+                .amount(amount)
+                .currency(currency)
+                .status("CREATED")
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        paymentRepository.save(payment);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("orderId", order.get("id"));
+        response.put("amount", amount);
+        response.put("currency", currency);
+        response.put("key", keyId);
+
+        return response;
+    }
+    private void creditUserAccount(BigDecimal amount, Long paymentId) {
+        // ⚙️ For now, just pick the first account (later link to logged-in user)
+        Account account = accountRepository.findAll().get(0);
+
+        // 🧾 Update account balance
+        account.setBalance(account.getBalance().add(amount));
+        accountRepository.save(account);
+
+        // 💳 Record the transaction
+        Transaction transaction = Transaction.builder()
+                .amount(amount)
+                .type("CREDIT")
+                .description("Funds added via Razorpay payment")
+                .timestamp(LocalDateTime.now())
+                .build();
+
+        transactionRepository.save(transaction);
+    }
+
+
+    @Override
+    public Payment verifyPayment(String orderId, String paymentId, String signature) throws Exception {
+        // ✅ 1. Fetch payment record from DB
+        Payment payment = paymentRepository.findByOrderId(orderId)
+                .orElseThrow(() -> new RuntimeException("Order not found"));
+
+        // ✅ 2. Verify Razorpay signature (optional in test mode)
+        String payload = orderId + "|" + paymentId;
+        String expectedSignature = HmacSHA256(payload, keySecret);
+
+        if (!expectedSignature.equals(signature)) {
+            throw new RuntimeException("Invalid signature. Payment verification failed.");
+        }
+
+        // ✅ 3. Update payment info
+        payment.setPaymentId(paymentId);
+        payment.setStatus("SUCCESS");
+        paymentRepository.save(payment);
+
+        // ✅ 4. Credit amount to user's account (bank logic)
+        creditUserAccount(payment.getAmount(), payment.getId());
+
+        return payment;
+    }
+
+    // Utility to generate HMAC SHA256 signature
+    private String HmacSHA256(String data, String key) throws Exception {
+        Mac sha256_HMAC = Mac.getInstance("HmacSHA256");
+        SecretKeySpec secret_key = new SecretKeySpec(key.getBytes(), "HmacSHA256");
+        sha256_HMAC.init(secret_key);
+        return new String(Hex.encode(sha256_HMAC.doFinal(data.getBytes())));
+    }
+
+    }
+

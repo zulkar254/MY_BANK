@@ -1,0 +1,17 @@
+package com.banking.service;
+
+import com.banking.model.Account;
+import java.util.List;
+
+public interface AccountService {
+
+    Account createDefaultAccountForUser(Long userId, String email);
+
+    Account getByAccountNumber(String accountNumber);
+
+    List<Account> getAccountsForUser(Long userId);
+    
+    List<Account> getAllAccounts(); // ✅ moved here properly
+
+	}
+    

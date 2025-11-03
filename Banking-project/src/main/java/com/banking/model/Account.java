@@ -1,0 +1,44 @@
+package com.banking.model;
+
+import jakarta.persistence.*;
+import lombok.*;
+import org.hibernate.annotations.CreationTimestamp;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "ACCOUNTS")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
+public class Account {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "acct_seq")
+    @SequenceGenerator(name = "acct_seq", sequenceName = "ACCT_SEQ", allocationSize = 1)
+    private Long id;
+
+    @Column(name = "account_number", nullable = false, unique = true)
+    private String accountNumber;
+
+    @Column(nullable = false)
+    private BigDecimal balance;
+
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "user_id", nullable = false)
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "accounts"})
+    private User user;
+
+//    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+//    @JoinColumn(name = "acc", nullable = false)
+//    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "accounts"})
+//    private Transaction transaction;
+}

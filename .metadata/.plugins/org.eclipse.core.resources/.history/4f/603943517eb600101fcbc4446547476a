@@ -1,0 +1,71 @@
+package com.banking.service.impl;
+
+import com.banking.model.Payment;
+import com.banking.repository.PaymentRepository;
+import com.banking.service.PaymentService;
+import com.razorpay.Order;
+import com.razorpay.RazorpayClient;
+import lombok.RequiredArgsConstructor;
+import org.json.JSONObject;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
+
+@Service
+@RequiredArgsConstructor
+public class PaymentServiceImpl implements PaymentService {
+
+    private final PaymentRepository paymentRepository;
+
+    @Value("${razorpay.keyId}")
+    private String keyId;
+
+    @Value("${razorpay.keySecret}")
+    private String keySecret;
+
+    @Override
+    public Map<String, Object> createPayment(BigDecimal amount, String currency) throws Exception {
+        RazorpayClient client = new RazorpayClient(keyId, keySecret);
+
+        JSONObject orderRequest = new JSONObject();
+        orderRequest.put("amount", amount.multiply(BigDecimal.valueOf(100))); // Razorpay uses paise
+        orderRequest.put("currency", currency);
+        orderRequest.put("payment_capture", 1);
+
+        Order order = client.Orders.create(orderRequest);
+
+        Payment payment = Payment.builder()
+                .orderId(order.get("id"))
+                .amount(amount)
+                .currency(currency)
+                .status("CREATED")
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        paymentRepository.save(payment);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("orderId", order.get("id"));
+        response.put("amount", amount);
+        response.put("currency", currency);
+        response.put("key", keyId);
+
+        return response;
+    }
+
+    @Override
+    public Payment verifyPayment(String orderId, String paymentId, String signature) throws Exception {
+        Payment payment = paymentRepository.findByOrderId(orderId)
+                .orElseThrow(() -> new RuntimeException("Order not found"));
+
+        payment.setPaymentId(paymentId);
+        payment.setStatus("SUCCESS");
+        paymentRepository.save(payment);
+
+        return payment;
+    }
+}

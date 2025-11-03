@@ -1,0 +1,5 @@
+package com.baking.model;
+
+public class User {
+
+}

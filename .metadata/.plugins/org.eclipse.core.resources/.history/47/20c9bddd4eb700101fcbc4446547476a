@@ -1,0 +1,173 @@
+package com.banking.service.impl;
+
+import com.banking.model.Account;
+import com.banking.model.Payment;
+import com.banking.model.Transaction;
+import com.banking.repository.AccountRepository;
+import com.banking.repository.PaymentRepository;
+import com.banking.repository.TransactionRepository;
+import com.banking.service.PaymentService;
+import com.razorpay.Order;
+import com.razorpay.RazorpayClient;
+import lombok.RequiredArgsConstructor;
+import org.json.JSONObject;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.crypto.codec.Hex;
+import org.springframework.stereotype.Service;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
+
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+
+@Service
+@RequiredArgsConstructor
+public class PaymentServiceImpl implements PaymentService {
+
+    private final PaymentRepository paymentRepository;
+    private final AccountRepository accountRepository;
+    private final TransactionRepository transactionRepository;
+
+    @Value("${razorpay.keyId}")
+    private String keyId;
+
+    @Value("${razorpay.keySecret}")
+    private String keySecret;
+
+    @Override
+    public Map<String, Object> createPayment(BigDecimal amount, String currency) throws Exception {
+        RazorpayClient client = new RazorpayClient(keyId, keySecret);
+
+        JSONObject orderRequest = new JSONObject();
+        BigDecimal amountInPaise = amount.multiply(BigDecimal.valueOf(100));
+        orderRequest.put("amount", amountInPaise.intValue());
+        orderRequest.put("currency", currency);
+        orderRequest.put("payment_capture", 1);
+
+        Order order = client.orders.create(orderRequest);
+
+        Payment payment = Payment.builder()
+                .orderId(order.get("id"))
+                .amount(amount)
+                .currency(currency)
+                .status("CREATED")
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        paymentRepository.save(payment);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("orderId", order.get("id"));
+        response.put("amount", amount);
+        response.put("currency", currency);
+        response.put("key", keyId);
+
+        return response;
+    }
+
+    @Override
+    public Payment verifyPayment(String orderId, String paymentId, String signature) throws Exception {
+        System.out.println("\n================ VERIFYING PAYMENT ================");
+        System.out.println("Order ID: " + orderId);
+        System.out.println("Payment ID: " + paymentId);
+
+        Payment payment = paymentRepository.findByOrderId(orderId)
+                .orElseThrow(() -> new RuntimeException("❌ Order not found in database"));
+
+        // ✅ Idempotency
+        if ("SUCCESS".equalsIgnoreCase(payment.getStatus())) {
+            System.out.println("⚠️ Payment already verified. Skipping credit.");
+            return payment;
+        }
+
+        String payload = orderId + "|" + paymentId;
+        String expectedSignature = generateHmacSHA256(payload, keySecret);
+
+        if (!expectedSignature.equals(signature)) {
+            payment.setStatus("FAILED");
+            paymentRepository.save(payment);
+            throw new RuntimeException("Invalid signature. Payment verification failed.");
+        }
+
+        payment.setPaymentId(paymentId);
+        payment.setStatus("SUCCESS");
+        paymentRepository.save(payment);
+
+        // TODO: pass real account here
+        creditUserAccount(payment.getAmount(), payment.getId());
+
+        System.out.println("✅ Payment verified and credited successfully.");
+        System.out.println("==================================================\n");
+        return payment;
+    }
+
+    private String generateHmacSHA256(String data, String key) throws Exception {
+        Mac sha256_HMAC = Mac.getInstance("HmacSHA256");
+        SecretKeySpec secret_key = new SecretKeySpec(key.getBytes("UTF-8"), "HmacSHA256");
+        sha256_HMAC.init(secret_key);
+
+        byte[] hash = sha256_HMAC.doFinal(data.getBytes("UTF-8"));
+        StringBuilder hexString = new StringBuilder();
+        for (byte b : hash) {
+            String hex = Integer.toHexString(0xff & b);
+            if (hex.length() == 1) hexString.append('0');
+            hexString.append(hex);
+        }
+        return hexString.toString();
+    }
+
+    private void creditUserAccount(BigDecimal amount, Long paymentId) {
+        // TEMP: take first account
+        Account account = accountRepository.findAll().get(1);
+
+        account.setBalance(account.getBalance().add(amount));
+        accountRepository.save(account);
+
+        Transaction transaction = Transaction.builder()
+                .fromAccount("SYSTEM")
+                .toAccount(account.getAccountNumber())
+                .amount(amount)
+                .type("CREDIT")
+                .status("SUCCESS")
+                .description("Funds added via Razorpay payment")
+                .timestamp(LocalDateTime.now())
+                .build();
+
+        transactionRepository.save(transaction);
+    }
+    
+
+    private void creditUserAccount(BigDecimal amount, Long paymentId) {
+        // ✅ Get logged-in user
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String username = auth.getName();
+
+        // ✅ Fetch user account
+        Account account = accountRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("Account not found for user: " + username));
+
+        // ✅ Credit funds
+        account.setBalance(account.getBalance().add(amount));
+        accountRepository.save(account);
+
+        // ✅ Record transaction
+        Transaction transaction = Transaction.builder()
+                .fromAccount("RAZORPAY")
+                .toAccount(account.getAccountNumber())
+                .amount(amount)
+                .type("CREDIT")
+                .status("SUCCESS")
+                .description("Funds added via Razorpay by " + username)
+                .timestamp(LocalDateTime.now())
+                .build();
+
+        transactionRepository.save(transaction);
+
+        System.out.println("✅ Amount credited to account of user: " + username);
+    }

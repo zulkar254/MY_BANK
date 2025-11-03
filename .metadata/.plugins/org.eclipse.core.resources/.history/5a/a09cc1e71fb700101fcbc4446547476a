@@ -1,0 +1,45 @@
+package com.banking.model;
+
+import jakarta.persistence.*;
+import lombok.*;
+import org.hibernate.annotations.CreationTimestamp;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "TRANSACTIONS")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class Transaction {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "txn_seq")
+    @SequenceGenerator(name = "txn_seq", sequenceName = "TXN_SEQ", allocationSize = 1)
+    private Long id;
+
+    @Column(name = "from_account")
+    private String fromAccount;
+
+    @Column(name = "to_account")
+    private String toAccount;
+
+    @Column(nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "account_id", nullable = false)
+    private BigDecimal amount;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "account_id", nullable = false)
+    private String status; // SUCCESS / FAILED
+
+    @Column(nullable = false)
+    private String type; // TRANSFER / DEPOSIT / WITHDRAWAL
+
+    @CreationTimestamp
+    @Column(name = "timestamp", nullable = false, updatable = false)
+    private LocalDateTime timestamp;
+}

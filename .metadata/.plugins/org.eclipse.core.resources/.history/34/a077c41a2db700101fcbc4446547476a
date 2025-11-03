@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Bank of Zulkar - Payment Portal</title>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f6f8fa;
+            padding: 40px;
+            text-align: center;
+        }
+        h2 {
+            color: #333;
+        }
+        form {
+            margin-top: 30px;
+        }
+        input, button {
+            padding: 10px;
+            font-size: 16px;
+        }
+        button {
+            background-color: #3399cc;
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        button:hover {
+            background-color: #287ba6;
+        }
+        #payment-status {
+            margin-top: 25px;
+            font-weight: bold;
+            color: #2d572c;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>💰 Add Funds to Your Account</h2>
+
+    <form id="payment-form">
+        <label for="amount">Enter Amount (INR): </label>
+        <input type="number" id="amount" min="1" required>
+        <button type="submit">Pay Now</button>
+    </form>
+
+    <div id="payment-status"></div>
+
+    <script>
+        document.getElementById("payment-form").addEventListener("submit", async function (e) {
+            e.preventDefault();
+
+            const amount = document.getElementById("amount").value;
+            if (!amount || amount <= 0) {
+                alert("Please enter a valid amount");
+                return;
+            }
+
+            try {
+                // Step 1️⃣ Create Order in Backend
+                const createRes = await fetch(`/api/payments/create?amount=${amount}`, {
+                    method: "POST",
+                    headers: {
+                        "Authorization": "Bearer " + localStorage.getItem("jwtToken")
+                    }
+                });
+
+                const order = await createRes.json();
+                console.log("Order created:", order);
+
+                // Step 2️⃣ Open Razorpay Payment Window
+                const options = {
+                    key: order.key,
+                    amount: order.amount * 100,
+                    currency: order.currency,
+                    name: "Bank of Zulkar",
+                    description: "Add money to your account",
+                    order_id: order.orderId,
+                    handler: async function (response) {
+                        // Step 3️⃣ Verify payment with backend
+                        const verifyBody = {
+                            orderId: order.orderId,
+                            paymentId: response.razorpay_payment_id,
+                            signature: response.razorpay_signature
+                        };
+
+                        const verifyRes = await fetch(`/api/payments/verify`, {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                                "Authorization": "Bearer " + localStorage.getItem("jwtToken")
+                            },
+                            body: JSON.stringify(verifyBody)
+                        });
+
+                        if (verifyRes.ok) {
+                            const result = await verifyRes.json();
+                            console.log("Payment verified:", result);
+                            document.getElementById("payment-status").innerHTML =
+                                "✅ Payment Successful! Funds credited to your account.";
+                        } else {
+                            document.getElementById("payment-status").innerHTML =
+                                "❌ Payment verification failed.";
+                        }
+                    },
+                    prefill: {
+                        name: "Zulkar Alam",
+                        email: "zulkar@example.com",
+                        contact: "6204658549"
+                    },
+                    theme: {
+                        color: "#3399cc"
+                    }
+                };
+
+                const rzp = new Razorpay(options);
+                rzp.open();
+
+            } catch (error) {
+                console.error("Error in payment flow:", error);
+                document.getElementById("payment-status").innerHTML = "⚠️ Something went wrong. Try again.";
+            }
+        });
+    </script>
+</body>
+</html>

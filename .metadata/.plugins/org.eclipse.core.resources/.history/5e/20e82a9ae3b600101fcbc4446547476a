@@ -1,0 +1,68 @@
+package com.banking.service.impl;
+
+import com.banking.dto.TransferRequest;
+import com.banking.model.Account;
+import com.banking.model.Transaction;
+import com.banking.repository.AccountRepository;
+import com.banking.repository.TransactionRepository;
+import com.banking.service.TransactionService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+public class TransactionServiceImpl implements TransactionService {
+
+    private final AccountRepository accountRepository;
+    private final TransactionRepository transactionRepository;
+
+    @Override
+    @Transactional
+    public Transaction transfer(TransferRequest request) {
+        Account from = accountRepository.findByAccountNumber(request.getFromAccount())
+                .orElseThrow(() -> new RuntimeException("From account not found"));
+
+        Account to = accountRepository.findByAccountNumber(request.getToAccount())
+                .orElseThrow(() -> new RuntimeException("To account not found"));
+
+        BigDecimal amount = request.getAmount();
+
+        if (from.getBalance().compareTo(amount) < 0) {
+            Transaction failed = Transaction.builder()
+                    .fromAccount(from.getAccountNumber())
+                    .toAccount(to.getAccountNumber())
+                    .amount(amount)
+                    .timestamp(LocalDateTime.now())
+                    .status("FAILED")
+                    .build();
+            transactionRepository.save(failed);
+            throw new RuntimeException("Insufficient balance");
+        }
+
+        from.setBalance(from.getBalance().subtract(amount));
+        to.setBalance(to.getBalance().add(amount));
+
+        accountRepository.save(from);
+        accountRepository.save(to);
+
+        Transaction tx = Transaction.builder()
+                .fromAccount(from.getAccountNumber())
+                .toAccount(to.getAccountNumber())
+                .amount(amount)
+                .timestamp(LocalDateTime.now())
+                .status("SUCCESS")
+                .build();
+
+        return transactionRepository.save(tx);
+    }
+
+    @Override
+    public List<Transaction> historyForAccount(String accountNumber) {
+        return transactionRepository.findByFromAccountOrToAccountOrderByTimestampDesc(accountNumber, accountNumber);
+    }
+}

@@ -1,0 +1,18 @@
+package com.banking.repository;
+
+import com.banking.model.Account;
+import org.springframework.data.jpa.repository.JpaRepository;
+import java.util.List;
+import java.util.Optional;
+
+public interface AccountRepository extends JpaRepository<Account, Long> {
+
+    // ✅ Find by account number
+    Optional<Account> findByAccountNumber(String accountNumber);
+
+    // ✅ Find all accounts for a given user
+    List<Account> findByUserId(Long userId);
+
+    // ✅ Used in PaymentServiceImpl for crediting logged-in user’s account
+    Optional<Account> findByUser_Username(String username);
+}

@@ -1,0 +1,96 @@
+package com.banking.security;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+import java.io.IOException;
+
+@Component
+@RequiredArgsConstructor
+public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private final JwtTokenProvider tokenProvider;
+    private final UserDetailsService userDetailsService;
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request,
+                                    HttpServletResponse response,
+                                    FilterChain filterChain)
+            throws ServletException, IOException {
+
+        final String requestURI = request.getRequestURI();
+
+        // ✅ Step 1: Skip JWT validation for public endpoints
+        if (isPublicEndpoint(requestURI)) {
+            System.out.println("🌍 Public endpoint accessed: " + requestURI);
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        // ✅ Step 2: Extract Authorization header
+        final String authHeader = request.getHeader("Authorization");
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        final String token = authHeader.substring(7);
+
+        // ✅ Step 3: Validate token
+        if (!tokenProvider.validateToken(token)) {
+            System.out.println("❌ Invalid or expired JWT for: " + requestURI);
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        // ✅ Step 4: Extract username and set authentication
+        final String username = tokenProvider.getUsernameFromJwt(token);
+
+        if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+            UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+
+            if (tokenProvider.validateToken(token)) {
+                UsernamePasswordAuthenticationToken authToken =
+                        new UsernamePasswordAuthenticationToken(
+                                userDetails,
+                                null,
+                                userDetails.getAuthorities()
+                        );
+
+                authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+
+                // ✅ Safe, reliable approach for Spring Boot 3.0 / Security 6.0
+                SecurityContext context = SecurityContextHolder.createEmptyContext();
+                context.setAuthentication(authToken);
+                SecurityContextHolder.setContext(context);
+
+                System.out.println("✅ JWT validated & SecurityContext set for: " + username);
+            }
+        }
+
+        // ✅ Step 5: Continue filter chain
+        filterChain.doFilter(request, response);
+    }
+
+    // ✅ Helper — skip JWT for open routes
+    private boolean isPublicEndpoint(String uri) {
+        return uri.startsWith("/api/auth") ||
+               uri.startsWith("/api/payments") || // Razorpay endpoints
+               uri.equals("/payment") ||
+               uri.startsWith("/swagger") ||
+               uri.startsWith("/v3/api-docs") ||
+               uri.startsWith("/h2-console") ||
+               uri.equals("/") ||
+               uri.startsWith("/error");
+    }
+}
